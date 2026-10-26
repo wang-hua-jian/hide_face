@@ -1,0 +1,52 @@
+# 唯一参数来源：所有阈值、路径、间隔均在此维护
+# 代码中不得再出现同名字面量默认值
+
+models:
+  yunet_path: ./models/yunet.onnx
+  sface_path: ./models/sface.onnx
+
+detector:
+  score_threshold: 0.7
+  nms_threshold: 0.3
+  max_input_size: 1280
+  detect_interval: 1
+
+tracker:
+  high_score_threshold: 0.7
+  low_score_threshold: 0.1
+  iou_threshold: 0.1
+  second_iou_threshold: 0.2
+  max_lost_frames: 30
+  mask_lost_frames: 4
+  lost_mask_distance_ratio: 1.5
+  smooth_alpha: 0.85
+  max_scale_step: 0.3
+  appearance_similarity: 0.6
+  ema_alpha: 0.9
+
+target:
+  box_expand_ratio: 0.0
+
+identity:
+  similarity_threshold: 0.40
+  max_embeddings: 20
+  profile_dir: ./data/profiles
+
+render:
+  style: solid
+  mask_shape: rect
+  opacity: 1.0
+  mosaic_block: 16
+  blur_kernel: 31
+  jpeg_quality: 95
+
+camera:
+  index: 0
+  max_fps: 15
+  display_scale: 0.75
+  snap_count: 1
+  snap_interval_seconds: 1.0
+
+video:
+  chunk_seconds: 125
+  chunk_overlap_seconds: 5

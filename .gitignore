@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 模型权重不入库，按 models/README.md 自行下载
+models/*.onnx
+
+# 本地输入与输出
+data/
+output/
