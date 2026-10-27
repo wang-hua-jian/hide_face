@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S_%f"
 
@@ -21,3 +22,24 @@ def camera_filename(moment: Optional[datetime] = None) -> str:
 
 def live_filename(moment: Optional[datetime] = None) -> str:
     return f"live_{format_timestamp(moment)}.mp4"
+
+
+def unique_camera_path(
+    directory: Union[str, Path],
+    moment: Optional[datetime] = None,
+) -> Path:
+    """生成不重名的摄像头截图路径。"""
+
+    target_dir = Path(directory)
+    path = target_dir / camera_filename(moment)
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    index = 1
+    while True:
+        candidate = target_dir / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1

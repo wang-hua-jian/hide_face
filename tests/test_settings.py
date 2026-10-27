@@ -37,11 +37,16 @@ def test_default_config_loads(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.detector.score_threshold == pytest.approx(0.7)
     assert settings.tracker.high_score_threshold == pytest.approx(0.7)
-    assert settings.tracker.appearance_similarity == pytest.approx(0.6)
+    assert settings.tracker.appearance_similarity == pytest.approx(0.4)
+    assert settings.tracker.appearance_max_lost_frames == 5
+    assert settings.tracker.eye_ratio_min_samples == 20
+    assert settings.tracker.eye_ratio_lower_factor == pytest.approx(0.4)
+    assert settings.tracker.eye_ratio_fallback == pytest.approx(0.12)
     assert settings.render.style == "solid"
     assert settings.render.mask_shape == "rect"
     assert settings.target.box_expand_ratio == pytest.approx(0.0)
     assert settings.camera.max_fps == 15
+    assert settings.camera.display_scale == pytest.approx(1.0)
     assert Path(settings.models.yunet_path).is_absolute()
     assert Path(settings.models.sface_path).is_absolute()
 
@@ -142,6 +147,20 @@ def test_ensure_models_passes_for_temp_files(tmp_path: Path) -> None:
     data = _default_data()
     data["models"]["yunet_path"] = str(yunet)
     data["models"]["sface_path"] = str(sface)
+
+    settings = Settings.load(_write_config(tmp_path, data))
+
+    ensure_models(settings)
+
+
+def test_missing_sface_allowed_when_appearance_disabled(tmp_path: Path) -> None:
+    yunet = tmp_path / "yunet.onnx"
+    yunet.write_bytes(b"yunet")
+
+    data = _default_data()
+    data["models"]["yunet_path"] = str(yunet)
+    data["models"]["sface_path"] = str(tmp_path / "missing_sface.onnx")
+    data["tracker"]["appearance_enabled"] = False
 
     settings = Settings.load(_write_config(tmp_path, data))
 

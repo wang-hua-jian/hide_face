@@ -13,10 +13,14 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
+
+import numpy as np
 
 from pipeline.schema import FaceDetection
+from pipeline.tracker.appearance_matcher import AppearanceMatcher
 from pipeline.tracker.base import Tracker
+from pipeline.tracker.face_geometry import FaceGeometryPrior
 from pipeline.tracker.kalman import KalmanBoxFilter
 from pipeline.tracker.matching import iou_matrix, linear_assignment
 from pipeline.tracker.state import TrackState
@@ -33,6 +37,8 @@ class ByteTrackTracker(Tracker):
         mask_lost_frames: int = 3,
         lost_mask_distance_ratio: float = 1.5,
         frame_step: int = 1,
+        appearance_matcher: Optional[AppearanceMatcher] = None,
+        geometry_prior: Optional[FaceGeometryPrior] = None,
     ) -> None:
         if not 0.0 <= low_score_threshold < high_score_threshold <= 1.0:
             raise ValueError(
@@ -65,6 +71,8 @@ class ByteTrackTracker(Tracker):
         self._mask_lost_frames = mask_lost_frames
         self._lost_mask_distance_ratio = lost_mask_distance_ratio
         self._frame_step = frame_step
+        self._appearance_matcher = appearance_matcher
+        self._geometry_prior = geometry_prior
 
         self._tracks: Dict[int, TrackState] = {}
         self._next_id = 1
@@ -77,6 +85,7 @@ class ByteTrackTracker(Tracker):
         self,
         detections: Sequence[FaceDetection],
         frame_id: int,
+        image: Optional[np.ndarray] = None,
     ) -> List[TrackState]:
         self._predict_all()
 
@@ -104,11 +113,14 @@ class ByteTrackTracker(Tracker):
             linear_assignment(cost, self._first_cost_threshold)
         )
         for track_index, detection_index in matches:
+            detection = high_detections[detection_index]
             self._apply_detection(
                 tracks[track_index],
-                high_detections[detection_index],
+                detection,
                 frame_id,
             )
+            if self._geometry_prior is not None:
+                self._geometry_prior.observe(detection)
 
         for track_index in unmatched_track_indices:
             track = tracks[track_index]
@@ -120,8 +132,55 @@ class ByteTrackTracker(Tracker):
                 and self._has_nearby_detection(track, detections)
             )
 
-        # 第二次关联：低置信检测 vs 第一次未匹配的 Track
-        remaining_tracks = [tracks[index] for index in unmatched_track_indices]
+        # 外观兜底：只处理第一次位置匹配失败的高置信检测
+        remaining_track_indices = list(unmatched_track_indices)
+        pending_high_indices = list(unmatched_detection_indices)
+        embeddings: Dict[int, Optional[np.ndarray]] = {}
+        appearance_matched_detections = set()
+        appearance_matched_tracks = set()
+
+        if (
+            self._appearance_matcher is not None
+            and image is not None
+            and pending_high_indices
+        ):
+            pending_detections = [
+                high_detections[index] for index in pending_high_indices
+            ]
+            embedding_list = self._appearance_matcher.embed_detections(
+                image, pending_detections
+            )
+            for position, original_index in enumerate(pending_high_indices):
+                embeddings[original_index] = embedding_list[position]
+
+            remaining_tracks = [
+                tracks[index] for index in remaining_track_indices
+            ]
+            if remaining_tracks:
+                pairs = self._appearance_matcher.associate(
+                    embedding_list, remaining_tracks
+                )
+                for position, track in pairs:
+                    original_index = pending_high_indices[position]
+                    self._apply_detection(
+                        track,
+                        high_detections[original_index],
+                        frame_id,
+                    )
+                    embedding = embedding_list[position]
+                    if embedding is not None:
+                        self._appearance_matcher.update(
+                            track, embedding, frame_id
+                        )
+                    appearance_matched_detections.add(original_index)
+                    appearance_matched_tracks.add(track.track_id)
+
+        # 第二次关联：低置信检测 vs 第一次未匹配且未被外观认回的 Track
+        remaining_tracks = [
+            tracks[index]
+            for index in remaining_track_indices
+            if tracks[index].track_id not in appearance_matched_tracks
+        ]
         cost_second = 1.0 - iou_matrix(
             [track.bbox for track in remaining_tracks],
             [detection.bbox for detection in low_detections],
@@ -136,9 +195,21 @@ class ByteTrackTracker(Tracker):
                 frame_id,
             )
 
-        # 仍未匹配的高置信检测：真正新建 Track
-        for detection_index in unmatched_detection_indices:
-            self._create_track(high_detections[detection_index], frame_id)
+        # 仍未匹配的高置信检测：几何先验通过的才新建 Track
+        for detection_index in pending_high_indices:
+            if detection_index in appearance_matched_detections:
+                continue
+            detection = high_detections[detection_index]
+            if (
+                self._geometry_prior is not None
+                and not self._geometry_prior.is_plausible(detection)
+            ):
+                continue
+            self._create_track(
+                detection,
+                frame_id,
+                embeddings.get(detection_index),
+            )
 
         self._remove_expired_tracks()
         return self._active_tracks()
@@ -169,7 +240,12 @@ class ByteTrackTracker(Tracker):
         track.updated = True
         track.mask_state = True
 
-    def _create_track(self, detection: FaceDetection, frame_id: int) -> None:
+    def _create_track(
+        self,
+        detection: FaceDetection,
+        frame_id: int,
+        embedding: Optional[np.ndarray] = None,
+    ) -> None:
         kalman = KalmanBoxFilter(detection.bbox)
         track = TrackState(
             track_id=self._next_id,
@@ -182,6 +258,11 @@ class ByteTrackTracker(Tracker):
             updated=True,
             mask_state=True,
         )
+        if (
+            embedding is not None
+            and self._appearance_matcher is not None
+        ):
+            self._appearance_matcher.update(track, embedding, frame_id)
         self._tracks[self._next_id] = track
         self._next_id += 1
 

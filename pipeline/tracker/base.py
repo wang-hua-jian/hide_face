@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Sequence
+from typing import List, Optional, Sequence
+
+import numpy as np
 
 from pipeline.schema import FaceDetection
 from pipeline.tracker.state import TrackState
@@ -15,8 +17,12 @@ class Tracker(ABC):
         self,
         detections: Sequence[FaceDetection],
         frame_id: int,
+        image: Optional[np.ndarray] = None,
     ) -> List[TrackState]:
-        """检测帧：预测 + 关联 + 生命周期更新。"""
+        """检测帧：预测 + 关联 + 生命周期更新。
+
+        image 仅在外观兜底需要裁剪人脸时使用。
+        """
 
     @abstractmethod
     def predict(self, frame_id: int) -> List[TrackState]:

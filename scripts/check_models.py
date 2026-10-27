@@ -29,11 +29,15 @@ def main() -> int:
         settings.detector.score_threshold,
         settings.detector.nms_threshold,
     )
-    cv2.FaceRecognizerSF.create(settings.models.sface_path, "")
+    if settings.tracker.appearance_enabled:
+        cv2.FaceRecognizerSF.create(settings.models.sface_path, "")
 
     print("[通过] 配置加载成功")
     print(f"[通过] YuNet 加载成功：{settings.models.yunet_path}")
-    print(f"[通过] SFace 加载成功：{settings.models.sface_path}")
+    if settings.tracker.appearance_enabled:
+        print(f"[通过] SFace 加载成功：{settings.models.sface_path}")
+    else:
+        print("[信息] 外观兜底已关闭，跳过 SFace 检查")
     print(f"[信息] OpenCV {cv2.__version__}")
     return 0
 

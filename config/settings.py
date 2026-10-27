@@ -74,7 +74,16 @@ class TrackerConfig(BaseModel):
     lost_mask_distance_ratio: float = Field(..., gt=0.0)
     smooth_alpha: float = Field(..., gt=0.0, le=1.0)
     max_scale_step: float = Field(..., ge=0.0, le=1.0)
+    appearance_enabled: bool
     appearance_similarity: float = Field(..., ge=-1.0, le=1.0)
+    appearance_min_face_size: int = Field(..., gt=0)
+    appearance_max_lost_frames: int = Field(..., ge=0)
+    appearance_min_eye_ratio: float = Field(..., ge=0.0, le=1.0)
+    eye_ratio_window: int = Field(..., gt=0)
+    eye_ratio_min_samples: int = Field(..., ge=1)
+    eye_ratio_lower_factor: float = Field(..., gt=0.0, le=1.0)
+    eye_ratio_upper_factor: float = Field(..., ge=1.0)
+    eye_ratio_fallback: float = Field(..., ge=0.0, le=1.0)
     ema_alpha: float = Field(..., ge=0.0, le=1.0)
 
 
@@ -109,7 +118,7 @@ class CameraConfig(BaseModel):
 
     index: int = Field(..., ge=0)
     max_fps: int = Field(..., gt=0)
-    display_scale: float = Field(..., gt=0.0, le=1.0)
+    display_scale: float = Field(..., gt=0.0, le=3.0)
     snap_count: int = Field(..., ge=1)
     snap_interval_seconds: float = Field(..., ge=0.0)
 
@@ -160,13 +169,14 @@ class Settings(BaseModel):
 
 
 def ensure_models(settings: Settings) -> None:
-    """启动自检：两个 onnx 必须存在且非空。"""
+    """启动自检：YuNet 必须存在；启用外观兜底时才要求 SFace。"""
+
+    required = [("YuNet", settings.models.yunet_path)]
+    if settings.tracker.appearance_enabled:
+        required.append(("SFace", settings.models.sface_path))
 
     problems = []
-    for label, value in (
-        ("YuNet", settings.models.yunet_path),
-        ("SFace", settings.models.sface_path),
-    ):
+    for label, value in required:
         model_path = Path(value)
         if not model_path.is_file():
             problems.append(f"{label} 模型缺失：{model_path}")
